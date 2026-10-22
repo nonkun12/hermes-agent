@@ -311,14 +311,24 @@ def _validate_auxiliary_config(config_path, issues: list) -> None:
     from hermes_cli.config import read_user_config_raw
     from hermes_cli.runtime_provider import resolve_runtime_provider
     from utils import base_url_hostname
-    aux = read_user_config_raw(config_path).get("auxiliary")
+    raw_config = read_user_config_raw(config_path)
+    aux = raw_config.get("auxiliary")
+    model_config = raw_config.get("model")
+    main_provider = str(model_config.get("provider") or "").strip().lower() if isinstance(model_config, dict) else ""
+    # Auxiliary tasks accept "main" as a moving alias for model.provider. Resolve it here too:
+    # resolve_runtime_provider() itself expects a concrete provider, unlike the auxiliary router.
+    if main_provider.startswith("custom:"):
+        main_provider = main_provider.split(":", 1)[1].strip() or "custom"
+    if main_provider in {"", "auto", "main"}:
+        main_provider = "custom"
     routed = {name: block for name, block in (aux.items() if isinstance(aux, dict) else ())
               if isinstance(block, dict) and str(block.get("provider") or "").strip().lower() not in ("", "auto")}
     ok = []
     for task, block in sorted(routed.items()):
         provider, model, base_url, api_key = (str(block.get(k) or "").strip() or None for k in ("provider", "model", "base_url", "api_key"))
+        requested_provider = main_provider if str(provider or "").strip().lower() == "main" else provider
         try:
-            runtime = resolve_runtime_provider(requested=provider, target_model=model, explicit_api_key=api_key, explicit_base_url=base_url)
+            runtime = resolve_runtime_provider(requested=requested_provider, target_model=model, explicit_api_key=api_key, explicit_base_url=base_url)
         except Exception as exc:  # noqa: BLE001 — every resolver error is a finding here
             _fail_and_issue(f"auxiliary.{task}.provider '{provider}' does not resolve", f"({str(exc).splitlines()[0]})",
                             f"auxiliary.{task}.provider '{provider}' cannot be resolved ({str(exc).splitlines()[0]}); the task "
