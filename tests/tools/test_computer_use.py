@@ -2270,8 +2270,13 @@ class TestCapturePayloadBudget:
         cap = CaptureResult(mode="som", width=1024, height=768,
                             png_b64="iVBORw0KGgo=", elements=elements,
                             app="X", window_title="t", png_bytes_len=10)
-        with patch("model_tools._run_async",
-                   return_value=json.dumps({"analysis": "a screen"})):
+        async def fake_vision_analyze_tool(*args, **kwargs):
+            return json.dumps({"analysis": "a screen"})
+
+        # Keep the real _run_async bridge: mocking it directly would leave the
+        # coroutine created by vision_analyze_tool() unawaited and emit a
+        # RuntimeWarning, masking the production async boundary.
+        with patch("tools.vision_tools.vision_analyze_tool", new=fake_vision_analyze_tool):
             out = cu_tool._route_capture_through_aux_vision(
                 cap, "summary",
                 visible_elements=elements[:5], truncated_elements=45,
